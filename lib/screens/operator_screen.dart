@@ -19,20 +19,11 @@ class _OperatorScreenState extends State<OperatorScreen> {
   String? busId;
   LatLng? currentLocation;
   Timer? _timer;
-  StreamSubscription<Position>? _positionStreamSubscription;
 
   @override
   void initState() {
     super.initState();
     _initializeData();
-    _startLocationUpdates();
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    _positionStreamSubscription?.cancel();
-    super.dispose();
   }
 
   Future<void> _initializeData() async {
@@ -112,19 +103,10 @@ class _OperatorScreenState extends State<OperatorScreen> {
     );
   }
 
-  void _startLocationUpdates() {
-    const LocationSettings locationSettings = LocationSettings(
-      accuracy: LocationAccuracy.high,
-      distanceFilter: 10,
-    );
-
-    _positionStreamSubscription = Geolocator.getPositionStream(
-      locationSettings: locationSettings,
-    ).listen((Position position) {
-      setState(() {
-        currentLocation = LatLng(position.latitude, position.longitude);
-      });
-    });
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
   }
 
   @override
