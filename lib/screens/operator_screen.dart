@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
@@ -15,21 +16,32 @@ class OperatorScreen extends StatefulWidget {
 
 class _OperatorScreenState extends State<OperatorScreen> {
   final supabase = Supabase.instance.client;
+  final MapController _mapController = MapController();
   bool _isSharing = false;
   String? busId;
   LatLng? currentLocation;
+  double? currentHeading;
   Timer? _timer;
+  StreamSubscription<Position>? _positionStreamSubscription;
 
   @override
   void initState() {
     super.initState();
     _initializeData();
+    _startLocationUpdates();
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _positionStreamSubscription?.cancel();
+    _mapController.dispose();
+    super.dispose();
   }
 
   Future<void> _initializeData() async {
     await _checkPermissions();
     await fetchBusId();
-    await getCurrentLocation();
   }
 
   Future<void> _checkPermissions() async {
@@ -55,16 +67,6 @@ class _OperatorScreenState extends State<OperatorScreen> {
         busId = response['id'];
       });
     }
-  }
-
-  Future<void> getCurrentLocation() async {
-    final position = await Geolocator.getCurrentPosition(
-      desiredAccuracy: LocationAccuracy.high,
-    );
-    if (!mounted) return;
-    setState(() {
-      currentLocation = LatLng(position.latitude, position.longitude);
-    });
   }
 
   void _toggleSharing() {
@@ -103,10 +105,26 @@ class _OperatorScreenState extends State<OperatorScreen> {
     );
   }
 
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
+  void _startLocationUpdates() {
+    const LocationSettings locationSettings = LocationSettings(
+      accuracy: LocationAccuracy.bestForNavigation,
+      distanceFilter: 5,
+    );
+
+    _positionStreamSubscription = Geolocator.getPositionStream(
+      locationSettings: locationSettings,
+    ).listen((Position position) {
+      final newLocation = LatLng(position.latitude, position.longitude);
+
+      if (mounted) {
+        setState(() {
+          currentLocation = newLocation;
+          currentHeading = position.heading;
+        });
+
+        _mapController.move(newLocation, _mapController.camera.zoom);
+      }
+    });
   }
 
   @override
@@ -142,10 +160,10 @@ class _OperatorScreenState extends State<OperatorScreen> {
                         child: SizedBox(
                           height: 250,
                           child: FlutterMap(
-                            mapController: mapController,
+                            mapController: _mapController,
                             options: MapOptions(
                               initialCenter: currentLocation!,
-                              initialZoom: 15,
+                              initialZoom: 17,
                             ),
                             children: [
                               TileLayer(
@@ -157,11 +175,22 @@ class _OperatorScreenState extends State<OperatorScreen> {
                                 markers: [
                                   Marker(
                                     point: currentLocation!,
-                                    width: 60,
-                                    height: 60,
-                                    child: Image.asset(
-                                      'lib/assets/bus_icon.png',
-                                    ),
+                                    width: 30,
+                                    height: 30,
+                                    child:
+                                        currentHeading != null
+                                            ? Transform.rotate(
+                                              angle:
+                                                  currentHeading! * (pi / 180),
+                                              child: Image.asset(
+                                                'lib/assets/bus_icon.png',
+                                                fit: BoxFit.contain,
+                                              ),
+                                            )
+                                            : Image.asset(
+                                              'lib/assets/bus_icon.png',
+                                              fit: BoxFit.contain,
+                                            ),
                                   ),
                                 ],
                               ),
