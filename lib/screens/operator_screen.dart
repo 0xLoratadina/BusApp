@@ -20,6 +20,7 @@ class _OperatorScreenState extends State<OperatorScreen> {
   LatLng? currentLocation;
   Timer? _timer;
   StreamSubscription<Position>? _positionStreamSubscription;
+  final MapController mapController = MapController();
 
   @override
   void initState() {
@@ -32,6 +33,7 @@ class _OperatorScreenState extends State<OperatorScreen> {
   void dispose() {
     _timer?.cancel();
     _positionStreamSubscription?.cancel();
+    mapController.dispose();
     super.dispose();
   }
 
@@ -70,7 +72,7 @@ class _OperatorScreenState extends State<OperatorScreen> {
     if (_isSharing) {
       _timer?.cancel();
     } else {
-      _timer = Timer.periodic(const Duration(seconds: 5), (_) {
+      _timer = Timer.periodic(const Duration(seconds: 2), (_) {
         sendLocationToSupabase();
       });
     }
@@ -105,7 +107,7 @@ class _OperatorScreenState extends State<OperatorScreen> {
   void _startLocationUpdates() {
     const LocationSettings locationSettings = LocationSettings(
       accuracy: LocationAccuracy.high,
-      distanceFilter: 10,
+      distanceFilter: 2,
     );
 
     _positionStreamSubscription = Geolocator.getPositionStream(
@@ -113,6 +115,7 @@ class _OperatorScreenState extends State<OperatorScreen> {
     ).listen((Position position) {
       setState(() {
         currentLocation = LatLng(position.latitude, position.longitude);
+        mapController.move(currentLocation!, 15);
       });
     });
   }
@@ -150,6 +153,7 @@ class _OperatorScreenState extends State<OperatorScreen> {
                         child: SizedBox(
                           height: 250,
                           child: FlutterMap(
+                            mapController: mapController,
                             options: MapOptions(
                               initialCenter: currentLocation!,
                               initialZoom: 15,
