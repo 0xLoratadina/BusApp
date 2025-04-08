@@ -69,7 +69,9 @@ class _LoginScreenState extends State<LoginScreen> {
             child: LayoutBuilder(
               builder: (context, constraints) {
                 return SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  padding: EdgeInsets.symmetric(
+                    horizontal: constraints.maxWidth * 0.06,
+                  ),
                   child: ConstrainedBox(
                     constraints: BoxConstraints(
                       minHeight: constraints.maxHeight,
@@ -78,21 +80,21 @@ class _LoginScreenState extends State<LoginScreen> {
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const SizedBox(height: 20),
+                          SizedBox(height: constraints.maxHeight * 0.02),
                           Column(
                             children: [
-                              const SizedBox(height: 40),
+                              SizedBox(height: constraints.maxHeight * 0.05),
                               Text(
                                 'Inicia sesión o regístrate',
                                 style: GoogleFonts.poppins(
-                                  fontSize: 18,
+                                  fontSize: constraints.maxWidth * 0.045,
                                   fontWeight: FontWeight.w600,
                                   color: Colors.black,
                                 ),
                               ),
-                              const SizedBox(height: 24),
+                              SizedBox(height: constraints.maxHeight * 0.03),
                               Container(
-                                height: 48,
+                                height: constraints.maxHeight * 0.06,
                                 decoration: BoxDecoration(
                                   border: Border.all(
                                     color: Colors.grey.shade300,
@@ -102,33 +104,33 @@ class _LoginScreenState extends State<LoginScreen> {
                                 child: Center(
                                   child: Image.asset(
                                     'lib/assets/google.png',
-                                    width: 24,
-                                    height: 24,
+                                    width: constraints.maxWidth * 0.06,
+                                    height: constraints.maxHeight * 0.03,
                                   ),
                                 ),
                               ),
-                              const SizedBox(height: 8),
+                              SizedBox(height: constraints.maxHeight * 0.01),
                               Text(
                                 '¿Eres operador\nInicia sesión con correo',
                                 textAlign: TextAlign.center,
                                 style: GoogleFonts.poppins(
-                                  fontSize: 12,
+                                  fontSize: constraints.maxWidth * 0.03,
                                   color: Colors.grey.shade600,
                                 ),
                               ),
-                              const SizedBox(height: 16),
+                              SizedBox(height: constraints.maxHeight * 0.02),
                               Align(
                                 alignment: Alignment.centerLeft,
                                 child: Text(
                                   'Email',
                                   style: GoogleFonts.poppins(
                                     fontWeight: FontWeight.w500,
-                                    fontSize: 14,
+                                    fontSize: constraints.maxWidth * 0.035,
                                     color: Colors.black,
                                   ),
                                 ),
                               ),
-                              const SizedBox(height: 4),
+                              SizedBox(height: constraints.maxHeight * 0.005),
                               TextFormField(
                                 controller: _emailController,
                                 validator: (value) {
@@ -141,9 +143,9 @@ class _LoginScreenState extends State<LoginScreen> {
                                   hintText: 'xxxxxxxxx@xxxxx.com',
                                   filled: true,
                                   fillColor: const Color(0xFFF6F8FE),
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    vertical: 14,
-                                    horizontal: 16,
+                                  contentPadding: EdgeInsets.symmetric(
+                                    vertical: constraints.maxHeight * 0.017,
+                                    horizontal: constraints.maxWidth * 0.04,
                                   ),
                                   border: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(10),
@@ -159,19 +161,19 @@ class _LoginScreenState extends State<LoginScreen> {
                                   ),
                                 ),
                               ),
-                              const SizedBox(height: 16),
+                              SizedBox(height: constraints.maxHeight * 0.02),
                               Align(
                                 alignment: Alignment.centerLeft,
                                 child: Text(
                                   'Contraseña',
                                   style: GoogleFonts.poppins(
                                     fontWeight: FontWeight.w500,
-                                    fontSize: 14,
+                                    fontSize: constraints.maxWidth * 0.035,
                                     color: Colors.black,
                                   ),
                                 ),
                               ),
-                              const SizedBox(height: 4),
+                              SizedBox(height: constraints.maxHeight * 0.005),
                               TextFormField(
                                 controller: _passwordController,
                                 obscureText: true,
@@ -185,9 +187,9 @@ class _LoginScreenState extends State<LoginScreen> {
                                   hintText: 'xxxxxxxxxxxxxxxxxxxxx',
                                   filled: true,
                                   fillColor: const Color(0xFFF6F8FE),
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    vertical: 14,
-                                    horizontal: 16,
+                                  contentPadding: EdgeInsets.symmetric(
+                                    vertical: constraints.maxHeight * 0.017,
+                                    horizontal: constraints.maxWidth * 0.04,
                                   ),
                                   border: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(10),
@@ -207,7 +209,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                           Column(
                             children: [
-                              const SizedBox(height: 24),
+                              SizedBox(height: constraints.maxHeight * 0.03),
                               SizedBox(
                                 width: double.infinity,
                                 child: ElevatedButton(
@@ -217,8 +219,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(12),
                                     ),
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 16,
+                                    padding: EdgeInsets.symmetric(
+                                      vertical: constraints.maxHeight * 0.02,
                                     ),
                                   ),
                                   child:
@@ -229,23 +231,24 @@ class _LoginScreenState extends State<LoginScreen> {
                                           : Text(
                                             'Iniciar Sesión',
                                             style: GoogleFonts.poppins(
-                                              fontSize: 16,
+                                              fontSize:
+                                                  constraints.maxWidth * 0.04,
                                               fontWeight: FontWeight.w500,
                                               color: Colors.white,
                                             ),
                                           ),
                                 ),
                               ),
-                              const SizedBox(height: 16),
+                              SizedBox(height: constraints.maxHeight * 0.02),
                               Text(
                                 'Acepto los términos y condiciones al registrarme por primera vez',
                                 textAlign: TextAlign.center,
                                 style: GoogleFonts.poppins(
-                                  fontSize: 11,
+                                  fontSize: constraints.maxWidth * 0.027,
                                   color: Colors.grey.shade600,
                                 ),
                               ),
-                              const SizedBox(height: 16),
+                              SizedBox(height: constraints.maxHeight * 0.02),
                             ],
                           ),
                         ],

@@ -19,17 +19,26 @@ class _OperatorScreenState extends State<OperatorScreen> {
   String? busId;
   LatLng? currentLocation;
   Timer? _timer;
+  StreamSubscription<Position>? _positionStreamSubscription;
 
   @override
   void initState() {
     super.initState();
     _initializeData();
+    _startLocationUpdates();
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _positionStreamSubscription?.cancel();
+    super.dispose();
   }
 
   Future<void> _initializeData() async {
     await _checkPermissions();
     await fetchBusId();
-    await getCurrentLocation();
+    //await getCurrentLocation();
   }
 
   Future<void> _checkPermissions() async {
@@ -55,16 +64,6 @@ class _OperatorScreenState extends State<OperatorScreen> {
         busId = response['id'];
       });
     }
-  }
-
-  Future<void> getCurrentLocation() async {
-    final position = await Geolocator.getCurrentPosition(
-      desiredAccuracy: LocationAccuracy.high,
-    );
-    if (!mounted) return;
-    setState(() {
-      currentLocation = LatLng(position.latitude, position.longitude);
-    });
   }
 
   void _toggleSharing() {
@@ -103,10 +102,19 @@ class _OperatorScreenState extends State<OperatorScreen> {
     );
   }
 
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
+  void _startLocationUpdates() {
+    const LocationSettings locationSettings = LocationSettings(
+      accuracy: LocationAccuracy.high,
+      distanceFilter: 10,
+    );
+
+    _positionStreamSubscription = Geolocator.getPositionStream(
+      locationSettings: locationSettings,
+    ).listen((Position position) {
+      setState(() {
+        currentLocation = LatLng(position.latitude, position.longitude);
+      });
+    });
   }
 
   @override

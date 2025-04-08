@@ -51,30 +51,37 @@ class _SuccessScreenState extends State<SuccessScreen>
     return Scaffold(
       backgroundColor: Colors.white,
       body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              width: 55.25,
-              height: 55.25,
-              decoration: const BoxDecoration(
-                shape: BoxShape.circle,
-                color: Color(0xFF6F39B5),
-              ),
-              child: Center(
-                child: AnimatedCheck(
-                  progress: _animation,
-                  size: 30,
-                  color: Colors.white,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  width: constraints.maxWidth * 0.15,
+                  height: constraints.maxWidth * 0.15,
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Color(0xFF6F39B5),
+                  ),
+                  child: Center(
+                    child: AnimatedCheck(
+                      progress: _animation,
+                      size: constraints.maxWidth * 0.08,
+                      color: Colors.white,
+                    ),
+                  ),
                 ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Hecho',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
-            ),
-          ],
+                SizedBox(height: constraints.maxHeight * 0.02),
+                Text(
+                  'Hecho',
+                  style: TextStyle(
+                    fontSize: constraints.maxWidth * 0.04,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );
