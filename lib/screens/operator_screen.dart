@@ -15,12 +15,22 @@ class OperatorScreen extends StatefulWidget {
 }
 
 class _OperatorScreenState extends State<OperatorScreen> {
+  // Configuración ajustable
+  static const double _iconSize = 36.0; // Tamaño del icono del camión
+  static const double _mapZoom = 16.5; // Nivel de zoom del mapa
+  static const int _updateInterval =
+      2; // Intervalo de actualización en segundos
+  static const int _distanceFilter = 5; // Filtro de distancia en metros
+  static const int _maxHistoryPoints = 8; // Puntos para cálculo de dirección
+
   final supabase = Supabase.instance.client;
   final MapController _mapController = MapController();
   bool _isSharing = false;
   String? busId;
   LatLng? currentLocation;
-  double? currentHeading;
+  List<LatLng> _locationHistory = [];
+  double _bearing = 0;
+  bool _isFlipped = false; // Controla si el icono está volteado
   Timer? _timer;
   StreamSubscription<Position>? _positionStreamSubscription;
 
@@ -73,7 +83,7 @@ class _OperatorScreenState extends State<OperatorScreen> {
     if (_isSharing) {
       _timer?.cancel();
     } else {
-      _timer = Timer.periodic(const Duration(seconds: 2), (_) {
+      _timer = Timer.periodic(const Duration(seconds: _updateInterval), (_) {
         sendLocationToSupabase();
       });
     }
@@ -105,10 +115,43 @@ class _OperatorScreenState extends State<OperatorScreen> {
     );
   }
 
+  double _calculateBearing(List<LatLng> locations) {
+    if (locations.length < 2) return 0;
+
+    final recent =
+        locations.length > 3
+            ? locations.sublist(locations.length - 3)
+            : locations;
+
+    double sumSin = 0;
+    double sumCos = 0;
+
+    for (int i = 1; i < recent.length; i++) {
+      final from = recent[i - 1];
+      final to = recent[i];
+
+      final lat1 = from.latitude * pi / 180;
+      final lon1 = from.longitude * pi / 180;
+      final lat2 = to.latitude * pi / 180;
+      final lon2 = to.longitude * pi / 180;
+
+      final y = sin(lon2 - lon1) * cos(lat2);
+      final x =
+          cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(lon2 - lon1);
+      final angle = atan2(y, x);
+
+      sumSin += sin(angle);
+      sumCos += cos(angle);
+    }
+
+    final avgAngle = atan2(sumSin, sumCos);
+    return (avgAngle * 180 / pi + 360) % 360;
+  }
+
   void _startLocationUpdates() {
     const LocationSettings locationSettings = LocationSettings(
       accuracy: LocationAccuracy.bestForNavigation,
-      distanceFilter: 5,
+      distanceFilter: _distanceFilter,
     );
 
     _positionStreamSubscription = Geolocator.getPositionStream(
@@ -116,13 +159,42 @@ class _OperatorScreenState extends State<OperatorScreen> {
     ).listen((Position position) {
       final newLocation = LatLng(position.latitude, position.longitude);
 
-      if (mounted) {
-        setState(() {
-          currentLocation = newLocation;
-          currentHeading = position.heading;
-        });
+      setState(() {
+        // Actualizar historial
+        _locationHistory.add(newLocation);
+        if (_locationHistory.length > _maxHistoryPoints) {
+          _locationHistory.removeAt(0);
+        }
 
-        _mapController.move(newLocation, _mapController.camera.zoom);
+        currentLocation = newLocation;
+
+        // Calcular dirección
+        final newBearing = _calculateBearing(_locationHistory) * pi / 180;
+
+        // Determinar si debe voltearse (dirección opuesta)
+        if (_locationHistory.length > 2) {
+          final angleChange = (newBearing - _bearing).abs();
+          if (angleChange > pi / 2) {
+            // Cambio brusco de dirección
+            _isFlipped = !_isFlipped;
+          }
+        }
+
+        _bearing = newBearing + pi / 2; // Ajuste base de 90°
+
+        // Ajuste para alineación con carreteras principales
+        if (_locationHistory.length > 4) {
+          final modAngle = _bearing % (pi / 2);
+          if (modAngle < pi / 6) {
+            _bearing -= modAngle;
+          } else if (modAngle > pi / 3) {
+            _bearing += (pi / 2 - modAngle);
+          }
+        }
+      });
+
+      if (mounted) {
+        _mapController.move(newLocation, _mapZoom);
       }
     });
   }
@@ -163,7 +235,7 @@ class _OperatorScreenState extends State<OperatorScreen> {
                             mapController: _mapController,
                             options: MapOptions(
                               initialCenter: currentLocation!,
-                              initialZoom: 17,
+                              initialZoom: _mapZoom,
                             ),
                             children: [
                               TileLayer(
@@ -175,22 +247,22 @@ class _OperatorScreenState extends State<OperatorScreen> {
                                 markers: [
                                   Marker(
                                     point: currentLocation!,
-                                    width: 30,
-                                    height: 30,
-                                    child:
-                                        currentHeading != null
-                                            ? Transform.rotate(
-                                              angle:
-                                                  currentHeading! * (pi / 180),
-                                              child: Image.asset(
-                                                'lib/assets/bus_icon.png',
-                                                fit: BoxFit.contain,
-                                              ),
-                                            )
-                                            : Image.asset(
-                                              'lib/assets/bus_icon.png',
-                                              fit: BoxFit.contain,
+                                    width: _iconSize,
+                                    height: _iconSize,
+                                    child: Transform(
+                                      transform:
+                                          Matrix4.identity()
+                                            ..rotateZ(_bearing)
+                                            ..scale(
+                                              _isFlipped ? -1.0 : 1.0,
+                                              1.0,
                                             ),
+                                      alignment: Alignment.center,
+                                      child: Image.asset(
+                                        'lib/assets/bus_icon.png',
+                                        fit: BoxFit.contain,
+                                      ),
+                                    ),
                                   ),
                                 ],
                               ),
