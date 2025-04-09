@@ -15,188 +15,269 @@ class OperatorScreen extends StatefulWidget {
 }
 
 class _OperatorScreenState extends State<OperatorScreen> {
-  // Configuración ajustable
-  static const double _iconSize = 36.0; // Tamaño del icono del camión
-  static const double _mapZoom = 16.5; // Nivel de zoom del mapa
-  static const int _updateInterval =
-      2; // Intervalo de actualización en segundos
-  static const int _distanceFilter = 5; // Filtro de distancia en metros
-  static const int _maxHistoryPoints = 8; // Puntos para cálculo de dirección
+  // Configuración de la aplicación
+  static const double _iconSize = 40.0;
+  static const double _mapZoom = 16.5;
+  static const int _updateInterval = 2; // segundos para actualización
+  static const int _distanceFilter = 5; // metros para actualización GPS
+  static const int _smoothingPoints = 10; // puntos para cálculo de dirección
+  static const double _smoothingFactor = 0.2; // factor de interpolación
 
+  // Dependencias
   final supabase = Supabase.instance.client;
   final MapController _mapController = MapController();
+
+  // Estado de la aplicación
   bool _isSharing = false;
   String? busId;
   LatLng? currentLocation;
-  List<LatLng> _locationHistory = [];
+  LatLng? _targetLocation;
+  final List<LatLng> _locationHistory = [];
   double _bearing = 0;
-  bool _isFlipped = false; // Controla si el icono está volteado
-  Timer? _timer;
-  StreamSubscription<Position>? _positionStreamSubscription;
+  double _displayBearing = 0;
+  bool _isFlipped = false;
+
+  // Controladores
+  Timer? _updateTimer;
+  Timer? _animationTimer;
+  StreamSubscription<Position>? _positionStream;
 
   @override
   void initState() {
     super.initState();
-    _initializeData();
-    _startLocationUpdates();
+    _initializeApp();
   }
 
   @override
   void dispose() {
-    _timer?.cancel();
-    _positionStreamSubscription?.cancel();
-    _mapController.dispose();
+    _cleanupResources();
     super.dispose();
   }
 
-  Future<void> _initializeData() async {
-    await _checkPermissions();
-    await fetchBusId();
-  }
-
-  Future<void> _checkPermissions() async {
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied ||
-        permission == LocationPermission.deniedForever) {
-      await Geolocator.requestPermission();
+  Future<void> _initializeApp() async {
+    try {
+      await _checkLocationPermissions();
+      await _loadBusData();
+      _startLocationUpdates();
+      _startAnimationEngine();
+    } catch (e) {
+      _showError('Error al iniciar: ${e.toString()}');
     }
   }
 
-  Future<void> fetchBusId() async {
-    final userId = supabase.auth.currentUser?.id;
-    final response =
-        await supabase
-            .from('buses')
-            .select('id')
-            .eq('operator_id', userId)
-            .maybeSingle();
+  void _cleanupResources() {
+    _updateTimer?.cancel();
+    _animationTimer?.cancel();
+    _positionStream?.cancel();
+    _mapController.dispose();
+  }
 
-    if (!mounted) return;
-    if (response != null) {
-      setState(() {
-        busId = response['id'];
-      });
+  Future<void> _checkLocationPermissions() async {
+    try {
+      if (!await Geolocator.isLocationServiceEnabled()) {
+        throw Exception('El servicio de ubicación está desactivado');
+      }
+
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          throw Exception('Permisos de ubicación denegados');
+        }
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        throw Exception('Permisos de ubicación permanentemente denegados');
+      }
+    } catch (e) {
+      _showError('Error de permisos: ${e.toString()}');
+      rethrow;
     }
   }
 
-  void _toggleSharing() {
-    if (_isSharing) {
-      _timer?.cancel();
-    } else {
-      _timer = Timer.periodic(const Duration(seconds: _updateInterval), (_) {
-        sendLocationToSupabase();
-      });
+  Future<void> _loadBusData() async {
+    try {
+      final userId = supabase.auth.currentUser?.id;
+      if (userId == null) throw Exception('Usuario no autenticado');
+
+      final response =
+          await supabase
+              .from('buses')
+              .select('id')
+              .eq('operator_id', userId)
+              .maybeSingle();
+
+      if (!mounted) return;
+      if (response == null) throw Exception('No se encontró autobús asignado');
+
+      setState(() => busId = response['id'] as String);
+    } catch (e) {
+      _showError('Error cargando datos: ${e.toString()}');
+      rethrow;
     }
-    setState(() => _isSharing = !_isSharing);
-  }
-
-  Future<void> sendLocationToSupabase() async {
-    if (busId == null || currentLocation == null) return;
-
-    await supabase.from('locations').upsert({
-      'bus_id': busId,
-      'latitude': currentLocation!.latitude,
-      'longitude': currentLocation!.longitude,
-      'updated_at': DateTime.now().toIso8601String(),
-    });
-  }
-
-  void _sendAlert(String type) async {
-    if (busId == null) return;
-    await supabase.from('traffic_alerts').insert({
-      'bus_id': busId,
-      'type': type,
-      'message': '$type reportado',
-    });
-
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('$type enviado'), backgroundColor: Colors.black),
-    );
-  }
-
-  double _calculateBearing(List<LatLng> locations) {
-    if (locations.length < 2) return 0;
-
-    final recent =
-        locations.length > 3
-            ? locations.sublist(locations.length - 3)
-            : locations;
-
-    double sumSin = 0;
-    double sumCos = 0;
-
-    for (int i = 1; i < recent.length; i++) {
-      final from = recent[i - 1];
-      final to = recent[i];
-
-      final lat1 = from.latitude * pi / 180;
-      final lon1 = from.longitude * pi / 180;
-      final lat2 = to.latitude * pi / 180;
-      final lon2 = to.longitude * pi / 180;
-
-      final y = sin(lon2 - lon1) * cos(lat2);
-      final x =
-          cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(lon2 - lon1);
-      final angle = atan2(y, x);
-
-      sumSin += sin(angle);
-      sumCos += cos(angle);
-    }
-
-    final avgAngle = atan2(sumSin, sumCos);
-    return (avgAngle * 180 / pi + 360) % 360;
   }
 
   void _startLocationUpdates() {
-    const LocationSettings locationSettings = LocationSettings(
+    const locationSettings = LocationSettings(
       accuracy: LocationAccuracy.bestForNavigation,
       distanceFilter: _distanceFilter,
     );
 
-    _positionStreamSubscription = Geolocator.getPositionStream(
+    _positionStream = Geolocator.getPositionStream(
       locationSettings: locationSettings,
-    ).listen((Position position) {
-      final newLocation = LatLng(position.latitude, position.longitude);
+    ).listen(
+      (position) => _handleNewPosition(position),
+      onError: (e) => _showError('Error de ubicación: ${e.toString()}'),
+    );
+  }
 
-      setState(() {
-        // Actualizar historial
-        _locationHistory.add(newLocation);
-        if (_locationHistory.length > _maxHistoryPoints) {
-          _locationHistory.removeAt(0);
-        }
+  void _handleNewPosition(Position position) {
+    final newLocation = LatLng(position.latitude, position.longitude);
 
-        currentLocation = newLocation;
+    setState(() {
+      _targetLocation = newLocation;
+      _locationHistory.add(newLocation);
 
-        // Calcular dirección
-        final newBearing = _calculateBearing(_locationHistory) * pi / 180;
+      if (_locationHistory.length > _smoothingPoints) {
+        _locationHistory.removeAt(0);
+      }
 
-        // Determinar si debe voltearse (dirección opuesta)
-        if (_locationHistory.length > 2) {
-          final angleChange = (newBearing - _bearing).abs();
-          if (angleChange > pi / 2) {
-            // Cambio brusco de dirección
-            _isFlipped = !_isFlipped;
-          }
-        }
+      _calculateDirection();
+      _adjustVehicleOrientation();
+    });
+  }
 
-        _bearing = newBearing + pi / 2; // Ajuste base de 90°
+  void _calculateDirection() {
+    if (_locationHistory.length < 2) return;
 
-        // Ajuste para alineación con carreteras principales
-        if (_locationHistory.length > 4) {
-          final modAngle = _bearing % (pi / 2);
-          if (modAngle < pi / 6) {
-            _bearing -= modAngle;
-          } else if (modAngle > pi / 3) {
-            _bearing += (pi / 2 - modAngle);
-          }
-        }
+    double sumSin = 0, sumCos = 0;
+    for (int i = 1; i < _locationHistory.length; i++) {
+      final angle = _calculateAngle(
+        _locationHistory[i - 1],
+        _locationHistory[i],
+      );
+      sumSin += sin(angle);
+      sumCos += cos(angle);
+    }
+
+    _bearing = atan2(sumSin, sumCos) + (pi / 2); // Ajuste para icono
+  }
+
+  double _calculateAngle(LatLng from, LatLng to) {
+    final lat1 = from.latitude * (pi / 180);
+    final lon1 = from.longitude * (pi / 180);
+    final lat2 = to.latitude * (pi / 180);
+    final lon2 = to.longitude * (pi / 180);
+
+    final y = sin(lon2 - lon1) * cos(lat2);
+    final x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(lon2 - lon1);
+    return atan2(y, x);
+  }
+
+  void _adjustVehicleOrientation() {
+    // Voltear icono si cambia de dirección
+    if (_locationHistory.length > 2) {
+      final angleChange = (_bearing - _displayBearing).abs();
+      if (angleChange > pi / 2) {
+        _isFlipped = !_isFlipped;
+      }
+    }
+
+    // Alinear con ejes principales de carretera
+    if (_locationHistory.length > 4) {
+      final modAngle = _bearing % (pi / 4);
+      if (modAngle < pi / 8) {
+        _bearing -= modAngle;
+      } else if (modAngle > 3 * pi / 8) {
+        _bearing += (pi / 4 - modAngle);
+      }
+    }
+  }
+
+  void _startAnimationEngine() {
+    _animationTimer = Timer.periodic(
+      const Duration(milliseconds: 50),
+      (timer) => _updateAnimation(),
+    );
+  }
+
+  void _updateAnimation() {
+    if (_targetLocation == null || currentLocation == null || !mounted) return;
+
+    // Interpolación de posición
+    final newLat =
+        currentLocation!.latitude +
+        (_targetLocation!.latitude - currentLocation!.latitude) *
+            _smoothingFactor;
+    final newLng =
+        currentLocation!.longitude +
+        (_targetLocation!.longitude - currentLocation!.longitude) *
+            _smoothingFactor;
+
+    // Interpolación de rotación
+    final angleDiff = (_bearing - _displayBearing + pi) % (2 * pi) - pi;
+    _displayBearing += angleDiff * _smoothingFactor;
+
+    setState(() {
+      currentLocation = LatLng(newLat, newLng);
+      _mapController.move(currentLocation!, _mapZoom);
+    });
+  }
+
+  void _toggleSharing() {
+    setState(() => _isSharing = !_isSharing);
+
+    if (_isSharing) {
+      _updateTimer = Timer.periodic(
+        const Duration(seconds: _updateInterval),
+        (_) => _sendLocationUpdate(),
+      );
+    } else {
+      _updateTimer?.cancel();
+    }
+  }
+
+  Future<void> _sendLocationUpdate() async {
+    try {
+      if (busId == null || currentLocation == null) return;
+
+      await supabase.from('locations').upsert({
+        'bus_id': busId,
+        'latitude': currentLocation!.latitude,
+        'longitude': currentLocation!.longitude,
+        'updated_at': DateTime.now().toIso8601String(),
+      });
+    } catch (e) {
+      _showError('Error enviando ubicación: ${e.toString()}');
+    }
+  }
+
+  void _sendAlert(String type) async {
+    try {
+      if (busId == null) return;
+
+      await supabase.from('traffic_alerts').insert({
+        'bus_id': busId,
+        'type': type,
+        'message': '$type reportado',
       });
 
-      if (mounted) {
-        _mapController.move(newLocation, _mapZoom);
-      }
-    });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$type enviado'), backgroundColor: Colors.black),
+      );
+    } catch (e) {
+      _showError('Error enviando alerta: ${e.toString()}');
+    }
+  }
+
+  void _showError(String message) {
+    debugPrint(message);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message), backgroundColor: Colors.red),
+      );
+    }
   }
 
   @override
@@ -206,118 +287,136 @@ class _OperatorScreenState extends State<OperatorScreen> {
       body: SafeArea(
         child:
             currentLocation == null
-                ? const Center(
-                  child: CircularProgressIndicator(color: Color(0xFF6E39B5)),
-                )
-                : Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.black,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Center(
-                          child: Text(
-                            'Dashboard',
-                            style: TextStyle(color: Colors.white, fontSize: 16),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: SizedBox(
-                          height: 250,
-                          child: FlutterMap(
-                            mapController: _mapController,
-                            options: MapOptions(
-                              initialCenter: currentLocation!,
-                              initialZoom: _mapZoom,
-                            ),
-                            children: [
-                              TileLayer(
-                                urlTemplate:
-                                    'https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/256/{z}/{x}/{y}@2x?access_token=${Env.mapboxToken}',
-                                userAgentPackageName: 'com.example.busapp',
-                              ),
-                              MarkerLayer(
-                                markers: [
-                                  Marker(
-                                    point: currentLocation!,
-                                    width: _iconSize,
-                                    height: _iconSize,
-                                    child: Transform(
-                                      transform:
-                                          Matrix4.identity()
-                                            ..rotateZ(_bearing)
-                                            ..scale(
-                                              _isFlipped ? -1.0 : 1.0,
-                                              1.0,
-                                            ),
-                                      alignment: Alignment.center,
-                                      child: Image.asset(
-                                        'lib/assets/bus_icon.png',
-                                        fit: BoxFit.contain,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF4F4F4),
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: [
-                            _buildIconButton(
-                              color: Colors.black,
-                              icon: _isSharing ? Icons.pause : Icons.play_arrow,
-                              label: _isSharing ? "Detener" : "Iniciar",
-                              onTap: _toggleSharing,
-                            ),
-                            _buildIconButton(
-                              color: Colors.yellow,
-                              icon: Icons.warning,
-                              label: "Tráfico",
-                              onTap: () => _sendAlert("trafico"),
-                            ),
-                            _buildIconButton(
-                              color: Colors.red,
-                              icon: Icons.build,
-                              label: "Reparación",
-                              onTap: () => _sendAlert("reparacion"),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      _buildTextButton("Cerrar Sesión", () {
-                        supabase.auth.signOut();
-                        Navigator.pushReplacementNamed(context, "/login");
-                      }),
-                      const SizedBox(height: 10),
-                      _buildTextButton("Soporte", () {
-                        // abrir soporte
-                      }),
-                    ],
-                  ),
-                ),
+                ? _buildLoadingView()
+                : _buildMainInterface(),
       ),
     );
   }
 
-  Widget _buildIconButton({
+  Widget _buildLoadingView() {
+    return const Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          CircularProgressIndicator(color: Color(0xFF6E39B5)),
+          SizedBox(height: 20),
+          Text('Inicializando sistema...'),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMainInterface() {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        children: [
+          _buildHeader(),
+          const SizedBox(height: 16),
+          _buildMap(),
+          const SizedBox(height: 16),
+          _buildControlPanel(),
+          const SizedBox(height: 20),
+          _buildActionButtons(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHeader() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.black,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: const Center(
+        child: Text(
+          'Dashboard',
+          style: TextStyle(color: Colors.white, fontSize: 16),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMap() {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: SizedBox(
+        height: 250,
+        child: FlutterMap(
+          mapController: _mapController,
+          options: MapOptions(
+            initialCenter: currentLocation!,
+            initialZoom: _mapZoom,
+            interactiveFlags: InteractiveFlag.all & ~InteractiveFlag.rotate,
+          ),
+          children: [
+            TileLayer(
+              urlTemplate:
+                  'https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/256/{z}/{x}/{y}@2x?access_token=${Env.mapboxToken}',
+              userAgentPackageName: 'com.example.busapp',
+            ),
+            MarkerLayer(
+              markers: [
+                Marker(
+                  point: currentLocation!,
+                  width: _iconSize,
+                  height: _iconSize,
+                  child: Transform(
+                    transform:
+                        Matrix4.identity()
+                          ..rotateZ(_displayBearing)
+                          ..scale(_isFlipped ? -1.0 : 1.0, 1.0),
+                    alignment: Alignment.center,
+                    child: Image.asset(
+                      'lib/assets/bus_icon.png',
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildControlPanel() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF4F4F4),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          _buildControlButton(
+            color: Colors.black,
+            icon: _isSharing ? Icons.pause : Icons.play_arrow,
+            label: _isSharing ? "Detener" : "Iniciar",
+            onTap: _toggleSharing,
+          ),
+          _buildControlButton(
+            color: Colors.yellow,
+            icon: Icons.warning,
+            label: "Tráfico",
+            onTap: () => _sendAlert("trafico"),
+          ),
+          _buildControlButton(
+            color: Colors.red,
+            icon: Icons.build,
+            label: "Reparación",
+            onTap: () => _sendAlert("reparacion"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildControlButton({
     required Color color,
     required IconData icon,
     required String label,
@@ -337,6 +436,21 @@ class _OperatorScreenState extends State<OperatorScreen> {
         ),
         const SizedBox(height: 4),
         Text(label, style: const TextStyle(fontSize: 12)),
+      ],
+    );
+  }
+
+  Widget _buildActionButtons() {
+    return Column(
+      children: [
+        _buildTextButton("Cerrar Sesión", () {
+          supabase.auth.signOut();
+          Navigator.pushReplacementNamed(context, "/login");
+        }),
+        const SizedBox(height: 10),
+        _buildTextButton("Soporte", () {
+          // Acción de soporte
+        }),
       ],
     );
   }
